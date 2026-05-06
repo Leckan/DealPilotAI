@@ -9,12 +9,18 @@ import {
   DealInput,
   DealValidationErrors,
   ExitStrategy,
+  Recommendation,
   analyzeDeal,
   createMockSavedDeals,
   emptyDealInput,
   validateDealInput,
 } from "@/lib/deal-calculations";
 import type { DealInsight } from "@/lib/deal-api";
+import {
+  DealSortKey,
+  createPipelineSummary,
+  filterAndSortDeals,
+} from "@/lib/deal-pipeline";
 
 type AppView = "landing" | "dashboard" | "analyze" | "results" | "deals";
 
@@ -50,6 +56,22 @@ export function DealPilotApp({ view }: { view: AppView }) {
     localStorage.setItem(CURRENT_DEAL_KEY, JSON.stringify(deal));
   }
 
+  function deleteDeal(dealId: string) {
+    const nextDeals = savedDeals.filter((deal) => deal.id !== dealId);
+    const nextActiveDeal =
+      activeDeal?.id === dealId ? nextDeals[0] ?? null : activeDeal;
+
+    setSavedDeals(nextDeals);
+    setActiveDeal(nextActiveDeal);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextDeals));
+
+    if (nextActiveDeal) {
+      localStorage.setItem(CURRENT_DEAL_KEY, JSON.stringify(nextActiveDeal));
+    } else {
+      localStorage.removeItem(CURRENT_DEAL_KEY);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f7faf9] text-[#17211f]">
       <AppShell view={view}>
@@ -59,7 +81,13 @@ export function DealPilotApp({ view }: { view: AppView }) {
         )}
         {view === "analyze" && <AnalysisForm onSave={saveDeal} />}
         {view === "results" && <Results deal={activeDeal} />}
-        {view === "deals" && <SavedDeals deals={savedDeals} onSelect={setActiveDeal} />}
+        {view === "deals" && (
+          <SavedDeals
+            deals={savedDeals}
+            onSelect={setActiveDeal}
+            onDelete={deleteDeal}
+          />
+        )}
       </AppShell>
     </div>
   );
@@ -444,12 +472,27 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
 function SavedDeals({
   deals,
   onSelect,
+  onDelete,
 }: {
   deals: DealAnalysis[];
   onSelect: (deal: DealAnalysis) => void;
+  onDelete: (dealId: string) => void;
 }) {
   const router = useRouter();
   const displayDeals = deals.length ? deals : createMockSavedDeals();
+  const [query, setQuery] = useState("");
+  const [strategy, setStrategy] = useState<ExitStrategy | "All">("All");
+  const [recommendation, setRecommendation] = useState<Recommendation | "All">(
+    "All",
+  );
+  const [sortBy, setSortBy] = useState<DealSortKey>("newest");
+  const filteredDeals = filterAndSortDeals(displayDeals, {
+    query,
+    strategy,
+    recommendation,
+    sortBy,
+  });
+  const summary = createPipelineSummary(displayDeals);
 
   return (
     <div className="space-y-6">
@@ -459,16 +502,65 @@ function SavedDeals({
         actionHref="/analyze"
         actionLabel="New Analysis"
       />
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard label="Saved pipeline" value={summary.totalDeals.toString()} />
+        <MetricCard label="Average score" value={summary.averageScore.toString()} tone="teal" />
+        <MetricCard
+          label="Multifamily deals"
+          value={summary.strategyCounts.Multifamily.toString()}
+          tone="green"
+        />
+      </div>
+      <div className="grid gap-3 rounded-lg border border-[#dbe7e3] bg-white p-4 shadow-sm lg:grid-cols-[1fr_180px_180px_160px]">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className={inputClass()}
+          placeholder="Search address, strategy, or recommendation"
+        />
+        <select
+          value={strategy}
+          onChange={(event) => setStrategy(event.target.value as ExitStrategy | "All")}
+          className={inputClass()}
+          aria-label="Filter by strategy"
+        >
+          <option value="All">All strategies</option>
+          {exitStrategies.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select
+          value={recommendation}
+          onChange={(event) =>
+            setRecommendation(event.target.value as Recommendation | "All")
+          }
+          className={inputClass()}
+          aria-label="Filter by recommendation"
+        >
+          <option value="All">All recommendations</option>
+          <option value="Strong Buy">Strong Buy</option>
+          <option value="Maybe">Maybe</option>
+          <option value="Avoid">Avoid</option>
+        </select>
+        <select
+          value={sortBy}
+          onChange={(event) => setSortBy(event.target.value as DealSortKey)}
+          className={inputClass()}
+          aria-label="Sort saved deals"
+        >
+          <option value="newest">Newest</option>
+          <option value="score">Top score</option>
+          <option value="profit">Top profit</option>
+          <option value="cashFlow">Top cash flow</option>
+        </select>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {displayDeals.map((deal) => (
-          <button
+        {filteredDeals.map((deal) => (
+          <div
             key={deal.id}
             className="rounded-lg border border-[#dbe7e3] bg-white p-5 text-left shadow-sm transition hover:border-[#94c9bf] hover:shadow-md"
-            onClick={() => {
-              onSelect(deal);
-              localStorage.setItem(CURRENT_DEAL_KEY, JSON.stringify(deal));
-              router.push("/results");
-            }}
           >
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -482,9 +574,37 @@ function SavedDeals({
               <MiniMetric label="Profit" value={formatCurrency(deal.estimatedProfit)} />
               <MiniMetric label="Cash flow" value={formatCurrency(deal.monthlyCashFlow)} />
             </div>
-          </button>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button
+                className="rounded-md bg-[#073d3a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0b504c]"
+                type="button"
+                onClick={() => {
+                  onSelect(deal);
+                  localStorage.setItem(CURRENT_DEAL_KEY, JSON.stringify(deal));
+                  router.push("/results");
+                }}
+              >
+                Open results
+              </button>
+              <button
+                className="rounded-md border border-[#f3a29b] bg-[#fff4f2] px-4 py-2 text-sm font-semibold text-[#b42318] hover:bg-[#fee5e0]"
+                type="button"
+                onClick={() => onDelete(deal.id)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         ))}
       </div>
+      {filteredDeals.length === 0 ? (
+        <div className="rounded-lg border border-[#dbe7e3] bg-white p-8 text-center shadow-sm">
+          <h2 className="text-xl font-semibold text-[#102321]">No deals match those filters</h2>
+          <p className="mt-2 text-sm leading-6 text-[#60716d]">
+            Clear the search or switch filters to review the full saved pipeline.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
