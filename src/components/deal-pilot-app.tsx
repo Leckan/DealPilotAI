@@ -312,6 +312,9 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
   const [insight, setInsight] = useState<DealInsight | null>(null);
   const [insightError, setInsightError] = useState("");
   const [isInsightLoading, setIsInsightLoading] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   async function askAiAboutDeal() {
     if (!deal) return;
@@ -339,6 +342,51 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
       setInsightError("DealPilot AI is unavailable. Please try again.");
     } finally {
       setIsInsightLoading(false);
+    }
+  }
+
+  async function exportDealMemo() {
+    if (!deal) return;
+
+    setExportStatus("");
+    setExportError("");
+    setIsExporting(true);
+
+    try {
+      const response = await fetch("/api/deals/export", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(deal),
+      });
+      const payload = (await response.json()) as {
+        data?: {
+          filename: string;
+          contentType: string;
+          html: string;
+        };
+      };
+
+      if (!response.ok || !payload.data) {
+        setExportError("DealPilot could not generate the memo. Please try again.");
+        return;
+      }
+
+      const blob = new Blob([payload.data.html], {
+        type: `${payload.data.contentType};charset=utf-8`,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = payload.data.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportStatus("Memo downloaded. Open it in your browser and print to PDF.");
+    } catch {
+      setExportError("Export service is unavailable. Please try again.");
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -382,7 +430,12 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
           isLoading={isInsightLoading}
           onAsk={askAiAboutDeal}
         />
-        <ExportPanel />
+        <ExportPanel
+          status={exportStatus}
+          error={exportError}
+          isExporting={isExporting}
+          onExport={exportDealMemo}
+        />
       </div>
     </div>
   );
@@ -691,19 +744,44 @@ function InsightList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function ExportPanel() {
+function ExportPanel({
+  status,
+  error,
+  isExporting,
+  onExport,
+}: {
+  status: string;
+  error: string;
+  isExporting: boolean;
+  onExport: () => void;
+}) {
   return (
-    <div className="rounded-lg border border-dashed border-[#9fcac2] bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-[#dbe7e3] bg-white p-5 shadow-sm">
       <h3 className="text-lg font-semibold text-[#17211f]">Export PDF</h3>
       <p className="mt-2 text-sm leading-6 text-[#60716d]">
-        Placeholder for a branded investor memo export with assumptions, metrics,
-        comps, and AI commentary.
+        Download a PDF-ready investor memo with assumptions, metrics, recommendation,
+        watchouts, and next steps.
       </p>
       {/* Future integration: connect PDF generation to a server route that
           renders a branded memo and persists export history. */}
-      <button className="mt-5 rounded-md border border-[#c6d7d3] bg-[#f7faf9] px-4 py-2 text-sm font-semibold text-[#173b37]" type="button">
-        Export coming soon
+      <button
+        className="mt-5 rounded-md bg-[#073d3a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0b504c] disabled:cursor-not-allowed disabled:bg-[#6d8985]"
+        type="button"
+        onClick={onExport}
+        disabled={isExporting}
+      >
+        {isExporting ? "Generating..." : "Download Memo"}
       </button>
+      {status ? (
+        <p className="mt-4 rounded-md border border-[#b7e3d9] bg-[#eef8f5] px-3 py-2 text-sm font-semibold text-[#0b625c]">
+          {status}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-4 rounded-md border border-[#f3a29b] bg-[#fff4f2] px-3 py-2 text-sm font-semibold text-[#b42318]">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

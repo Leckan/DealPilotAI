@@ -30,6 +30,18 @@ export type DealInsightApiResponse = {
   data: DealInsight;
 };
 
+export type DealMemo = {
+  filename: string;
+  contentType: "text/html";
+  html: string;
+};
+
+export type DealMemoApiResponse = {
+  ok: true;
+  status: 200;
+  data: DealMemo;
+};
+
 export function createDealAnalysisResponse(
   payload: unknown,
 ): DealAnalysisApiResponse {
@@ -70,6 +82,23 @@ export function createDealInsightResponse(
       strengths,
       watchouts,
       nextSteps,
+    },
+  };
+}
+
+export function createDealMemoResponse(deal: DealAnalysis): DealMemoApiResponse {
+  const insight = createDealInsightResponse(deal).data;
+  const filename = `dealpilot-${slugify(deal.address)}.html`;
+
+  // Future integration: replace this HTML memo with a true PDF renderer such as
+  // Playwright PDF, React PDF, or a queue-backed document generation service.
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      filename,
+      contentType: "text/html",
+      html: renderInvestorMemo(deal, insight),
     },
   };
 }
@@ -186,6 +215,103 @@ function formatCurrency(value: number) {
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function renderInvestorMemo(deal: DealAnalysis, insight: DealInsight) {
+  const metrics = [
+    ["Max allowable offer", formatCurrency(deal.maxAllowableOffer)],
+    ["Estimated profit", formatCurrency(deal.estimatedProfit)],
+    ["ROI", `${deal.roi}%`],
+    ["Monthly cash flow", formatCurrency(deal.monthlyCashFlow)],
+    ["NOI", formatCurrency(deal.noi)],
+    ["Cap rate", `${deal.capRate}%`],
+    ["Cash-on-cash return", `${deal.cashOnCashReturn}%`],
+    ["DSCR", deal.dscr.toFixed(2)],
+  ];
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DealPilot AI Investor Memo - ${escapeHtml(deal.address)}</title>
+    <style>
+      body { color: #17211f; font-family: Arial, Helvetica, sans-serif; margin: 0; background: #f7faf9; }
+      main { background: #fff; margin: 32px auto; max-width: 920px; padding: 40px; border: 1px solid #dbe7e3; border-radius: 10px; }
+      h1, h2 { margin: 0; }
+      h1 { font-size: 32px; }
+      h2 { color: #073d3a; font-size: 18px; margin-top: 32px; }
+      p { color: #52635f; line-height: 1.6; }
+      .header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 1px solid #dbe7e3; padding-bottom: 24px; }
+      .score { background: #073d3a; border-radius: 10px; color: #fff; min-width: 160px; padding: 20px; text-align: center; }
+      .score strong { display: block; font-size: 42px; }
+      .grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 18px; }
+      .card { border: 1px solid #dbe7e3; border-radius: 8px; padding: 14px; }
+      .label { color: #71827e; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+      .value { color: #17211f; font-size: 20px; font-weight: 700; margin-top: 6px; }
+      ul { color: #52635f; line-height: 1.6; padding-left: 20px; }
+      .recommendation { background: #eef8f5; border-left: 4px solid #0b625c; padding: 14px 16px; }
+      @media print { body { background: #fff; } main { border: 0; margin: 0; max-width: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="header">
+        <div>
+          <p class="label">DealPilot AI Investor Memo</p>
+          <h1>${escapeHtml(deal.address)}</h1>
+          <p>${escapeHtml(deal.exitStrategy)} analysis generated ${new Date(deal.analyzedAt).toLocaleDateString("en-US")}.</p>
+        </div>
+        <div class="score">
+          <span class="label" style="color:#bfe6de">Deal score</span>
+          <strong>${deal.dealScore}</strong>
+          <span>${escapeHtml(deal.recommendation)} • ${escapeHtml(deal.riskLevel)} risk</span>
+        </div>
+      </section>
+      <section>
+        <h2>Recommendation</h2>
+        <p class="recommendation">${escapeHtml(insight.summary)}</p>
+      </section>
+      <section>
+        <h2>Core Metrics</h2>
+        <div class="grid">
+          ${metrics
+            .map(
+              ([label, value]) => `<div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`,
+            )
+            .join("")}
+        </div>
+      </section>
+      ${renderMemoList("Strengths", insight.strengths)}
+      ${renderMemoList("Watchouts", insight.watchouts)}
+      ${renderMemoList("Next Steps", insight.nextSteps)}
+    </main>
+  </body>
+</html>`;
+}
+
+function renderMemoList(title: string, items: string[]) {
+  return `<section><h2>${escapeHtml(title)}</h2><ul>${items
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("")}</ul></section>`;
+}
+
+function slugify(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "deal"
+  );
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function isExitStrategy(value: unknown): value is DealInput["exitStrategy"] {

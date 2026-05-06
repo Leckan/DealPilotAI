@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   createDealAnalysisResponse,
   createDealInsightResponse,
+  createDealMemoResponse,
 } from "../src/lib/deal-api.ts";
 import { analyzeDeal, emptyDealInput } from "../src/lib/deal-calculations.ts";
 
@@ -84,4 +85,26 @@ test("flags weak deal economics in AI-style insights", () => {
   assert.equal(response.status, 200);
   assert.ok(response.data.watchouts.some((item) => item.includes("margin")));
   assert.ok(response.data.nextSteps.some((item) => item.includes("offer")));
+});
+
+test("creates a PDF-ready investor memo export payload", () => {
+  const deal = analyzeDeal({
+    ...emptyDealInput,
+    address: "500 Memo St, Atlanta, GA",
+    purchasePrice: 260000,
+    arv: 390000,
+    rehabBudget: 45000,
+    exitStrategy: "BRRRR",
+  });
+
+  const response = createDealMemoResponse(deal);
+
+  assert.equal(response.ok, true);
+  assert.equal(response.status, 200);
+  assert.equal(response.data.contentType, "text/html");
+  assert.equal(response.data.filename, "dealpilot-500-memo-st-atlanta-ga.html");
+  assert.match(response.data.html, /DealPilot AI Investor Memo/);
+  assert.match(response.data.html, /500 Memo St, Atlanta, GA/);
+  assert.match(response.data.html, /Max allowable offer/);
+  assert.match(response.data.html, /Deal score/);
 });
