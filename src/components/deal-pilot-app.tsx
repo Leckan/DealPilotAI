@@ -21,6 +21,7 @@ import {
   createPipelineSummary,
   filterAndSortDeals,
 } from "@/lib/deal-pipeline";
+import { createDealScenarios } from "@/lib/deal-scenarios";
 
 type AppView = "landing" | "dashboard" | "analyze" | "results" | "deals";
 
@@ -429,6 +430,8 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
     );
   }
 
+  const scenarios = createDealScenarios(deal);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -465,6 +468,7 @@ function Results({ deal }: { deal: DealAnalysis | null }) {
           onExport={exportDealMemo}
         />
       </div>
+      <ScenarioPanel scenarios={scenarios} />
     </div>
   );
 }
@@ -660,6 +664,117 @@ function DealScoreCard({ deal }: { deal: DealAnalysis }) {
           strategy fit into a practical acquisition signal.
         </p>
       </div>
+    </div>
+  );
+}
+
+function ScenarioPanel({
+  scenarios,
+}: {
+  scenarios: ReturnType<typeof createDealScenarios>;
+}) {
+  return (
+    <section className="rounded-lg border border-[#dbe7e3] bg-white p-5 shadow-sm">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div>
+          <h2 className="text-lg font-semibold text-[#17211f]">Scenario stress test</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#60716d]">
+            Compare the base underwriting against conservative and downside
+            assumptions before committing capital.
+          </p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        {scenarios.map((scenario) => (
+          <article
+            key={scenario.name}
+            className="rounded-lg border border-[#e2ece9] bg-[#fbfdfc] p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-[#17211f]">{scenario.name}</h3>
+                <p className="mt-1 text-sm leading-6 text-[#60716d]">
+                  {scenario.description}
+                </p>
+              </div>
+              <span className={recommendationClass(scenario.analysis.recommendation)}>
+                {scenario.analysis.recommendation}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <MiniMetric
+                label="Profit"
+                value={formatCurrency(scenario.analysis.estimatedProfit)}
+              />
+              <MiniMetric
+                label="Cash flow"
+                value={formatCurrency(scenario.analysis.monthlyCashFlow)}
+              />
+              <MiniMetric
+                label="Score"
+                value={scenario.analysis.dealScore.toString()}
+              />
+            </div>
+            <div className="mt-4 grid gap-2 rounded-md bg-white p-3">
+              <ScenarioDelta
+                label="Profit delta"
+                value={scenario.delta.estimatedProfit}
+                format="currency"
+              />
+              <ScenarioDelta
+                label="Cash flow delta"
+                value={scenario.delta.monthlyCashFlow}
+                format="currency"
+              />
+              <ScenarioDelta
+                label="Score delta"
+                value={scenario.delta.dealScore}
+                format="number"
+              />
+            </div>
+            <ul className="mt-4 space-y-1">
+              {scenario.assumptions.map((assumption) => (
+                <li
+                  key={assumption}
+                  className="text-xs font-semibold uppercase tracking-wide text-[#7a8c88]"
+                >
+                  {assumption}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ScenarioDelta({
+  label,
+  value,
+  format,
+}: {
+  label: string;
+  value: number;
+  format: "currency" | "number";
+}) {
+  const isPositive = value > 0;
+  const isFlat = value === 0;
+  const formatted =
+    format === "currency"
+      ? `${isPositive ? "+" : ""}${formatCurrency(value)}`
+      : `${isPositive ? "+" : ""}${value}`;
+
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="font-medium text-[#60716d]">{label}</span>
+      <span
+        className={`font-semibold ${
+          isFlat ? "text-[#60716d]" : isPositive ? "text-[#087f5b]" : "text-[#b42318]"
+        }`}
+      >
+        {formatted}
+      </span>
     </div>
   );
 }
